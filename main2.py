@@ -37,17 +37,17 @@ async def read_root():
 
 # --- LOGIC FUNCTIONS ---
 
-def logic_create(phone, name, purpose, time_str):
-    db = SessionLocal()
-    try:
-        try: dt = parser.parse(time_str)
-        except: return "I couldn't understand that date."
-        conflict = db.query(Appointment).filter(Appointment.start_time == dt, Appointment.status == "scheduled").first()
-        if conflict: return "That time is already taken."
-        db.add(Appointment(user_phone=phone, user_name=name, purpose=purpose, start_time=dt))
-        db.commit()
-        return f"Booked! {name}, your meeting about {purpose} is set for {dt.strftime('%A at %I:%M %p')}."
-    finally: db.close()
+# def logic_create(phone, name, purpose, time_str):
+#     db = SessionLocal()
+#     try:
+#         try: dt = parser.parse(time_str)
+#         except: return "I couldn't understand that date."
+#         conflict = db.query(Appointment).filter(Appointment.start_time == dt, Appointment.status == "scheduled").first()
+#         if conflict: return "That time is already taken."
+#         db.add(Appointment(user_phone=phone, user_name=name, purpose=purpose, start_time=dt))
+#         db.commit()
+#         return f"Booked! {name}, your meeting about {purpose} is set for {dt.strftime('%A at %I:%M %p')}."
+#     finally: db.close()
 
 def logic_cancel(phone):
     db = SessionLocal()
@@ -59,28 +59,67 @@ def logic_cancel(phone):
     return "Meeting cancelled successfully."
 
 # --- NEW: RESCHEDULE LOGIC ---
+# --- IN MAIN.PY ---
+
+def logic_create(phone, name, purpose, time_str):
+    db = SessionLocal()
+    try:
+        # Debug print to see what Vapi sends to Render logs
+        print(f"DEBUG: Creating appointment. Date received: {time_str}")
+        
+        try:
+            dt = parser.parse(time_str)
+        except:
+            return "I had trouble understanding that date. Could you please say the day and time again clearly?"
+        
+        conflict = db.query(Appointment).filter(Appointment.start_time == dt, Appointment.status == "scheduled").first()
+        if conflict: 
+            return "That time slot is already taken. Please choose another time."
+
+        # Check if phone number was actually passed
+        if not phone:
+            return "I seem to have missed your phone number. Could you please repeat it?"
+
+        new_appt = Appointment(user_phone=phone, user_name=name, purpose=purpose, start_time=dt)
+        db.add(new_appt)
+        db.commit()
+        
+        # Readable date format for the voice response
+        readable_date = dt.strftime('%A, %B %d at %I:%M %p')
+        return f"Done. I have booked your consultation for {readable_date}."
+    except Exception as e:
+        print(f"ERROR: {e}")
+        return "I'm having a system issue saving that appointment."
+    finally: 
+        db.close()
+
 def logic_reschedule(phone, new_time_str):
     db = SessionLocal()
     try:
-        # 1. Find the meeting
+        print(f"DEBUG: Rescheduling. New Date received: {new_time_str}")
+
         appt = db.query(Appointment).filter(Appointment.user_phone == phone, Appointment.status == "scheduled").first()
-        if not appt: return "I couldn't find a meeting to reschedule for that number."
+        if not appt: 
+            return "I couldn't find an existing meeting for that phone number."
 
-        # 2. Parse new time
-        try: dt = parser.parse(new_time_str)
-        except: return "I didn't catch that new time."
+        try:
+            dt = parser.parse(new_time_str)
+        except:
+            return "I couldn't understand the new time. Please say it again."
 
-        # 3. Check conflict
         conflict = db.query(Appointment).filter(Appointment.start_time == dt, Appointment.status == "scheduled").first()
-        if conflict: return "That new time slot is already taken."
+        if conflict: 
+            return "That new time slot is already taken."
 
-        # 4. Update
         appt.start_time = dt
         db.commit()
-        return f"Done! I've moved your meeting to {dt.strftime('%A at %I:%M %p')}."
+        
+        readable_date = dt.strftime('%A, %B %d at %I:%M %p')
+        return f"Success. I have moved your meeting to {readable_date}."
     finally:
         db.close()
-
+        
+        
 def logic_list(phone):
     db = SessionLocal()
     appts = db.query(Appointment).filter(Appointment.user_phone == phone, Appointment.status == "scheduled").all()
